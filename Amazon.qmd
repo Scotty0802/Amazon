@@ -1,0 +1,59 @@
+---
+title: "Amazon"
+format: html
+editor: visual
+---
+
+# Load Libraries
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(vroom)
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+library(glmnet)
+```
+
+# Import Data
+
+```{r}
+train <- vroom("~/GitHub/Stat 348/Amazon/Data/train.csv")
+test <- vroom("~/GitHub/Stat 348/Amazon/Data/test.csv")
+```
+
+# EDA
+
+```{r}
+ggplot(train, aes(x = factor(ACTION))) +
+  geom_bar(fill = "skyblue", color = "black") +
+  labs(title = "Distribution of Access Actions",
+       x = "Action (0 = Denied, 1 = Granted)",
+       y = "Count") +
+  theme_minimal()
+
+train %>%
+  count(RESOURCE, sort = TRUE) %>%
+  slice_head(n = 10) %>%
+  ggplot(aes(x = reorder(factor(RESOURCE), n), y = n)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Top 10 Most Common Resources Accessed",
+       x = "Resource ID",
+       y = "Number of Requests") +
+  theme_minimal()
+```
+
+# Recipe
+
+```{r}
+amazon_recipe <- recipe(ACTION ~ ., data = train) %>%
+  step_mutate(across(everything(), as.factor)) %>%
+  step_other(all_nominal_predictors(), threshold = 0.001)%>%
+  step_dummy(all_nominal_predictors())
+
+amazon_prep <- prep(amazon_recipe)
+amazon_train <- bake(amazon_prep, new_data = NULL)
+amazon_test <- bake(amazon_prep, new_data = test)
+```
