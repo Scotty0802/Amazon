@@ -14,6 +14,7 @@ library(ggplot2)
 library(dplyr)
 library(patchwork)
 library(glmnet)
+
 ```
 
 # Import Data
@@ -56,4 +57,43 @@ amazon_recipe <- recipe(ACTION ~ ., data = train) %>%
 amazon_prep <- prep(amazon_recipe)
 amazon_train <- bake(amazon_prep, new_data = NULL)
 amazon_test <- bake(amazon_prep, new_data = test)
+View(amazon_test)
+```
+
+Models
+
+```{r}
+logRegModel <- logistic_reg() %>%
+set_engine("glm")
+```
+
+Workflow
+
+```{r}
+wf <- workflow() %>%
+add_recipe(amazon_recipe) %>%
+add_model(logRegModel) %>%
+fit(data = train)
+```
+
+Predictions
+
+```{r}
+amazon_predictions <- predict(wf,
+new_data = test,
+type= "prob") 
+```
+
+Print
+
+```{r}
+kaggle_submission <- amazon_predictions |>
+  bind_cols(test) |> 
+  select(id, .pred_1) |>
+  rename(ACTION = .pred_1) 
+
+## Write out the file
+vroom_write(x = kaggle_submission,
+            file = "~/GitHub/Stat 348/Amazon/Data/KaggleSub/Kaggle_Submission.csv",
+            delim = ",")
 ```
