@@ -14,7 +14,8 @@ library(ggplot2)
 library(dplyr)
 library(patchwork)
 library(glmnet)
-
+library(embed)
+library(lme4)
 ```
 
 # Import Data
@@ -49,22 +50,24 @@ train %>%
 # Recipe
 
 ```{r}
+
+
 amazon_recipe <- recipe(ACTION ~ ., data = train) %>%
-  step_mutate(across(everything(), as.factor)) %>%
-  step_other(all_nominal_predictors(), threshold = 0.001)%>%
-  step_dummy(all_nominal_predictors())
+step_mutate(across(everything(), as.factor))%>% 
+step_other(all_nominal_predictors(), threshold = 0.001)%>%
+step_lencode_mixed(all_nominal_predictors(), outcome = vars(ACTION))
 
 amazon_prep <- prep(amazon_recipe)
 amazon_train <- bake(amazon_prep, new_data = NULL)
 amazon_test <- bake(amazon_prep, new_data = test)
-View(amazon_test)
+View(amazon_train)
 ```
 
 Models
 
 ```{r}
-logRegModel <- logistic_reg() %>%
-set_engine("glm")
+logRegModel <- logistic_reg(mixture = tune(), penalty = tune()) %>%
+set_engine("glmnet")
 ```
 
 Workflow
@@ -72,14 +75,43 @@ Workflow
 ```{r}
 wf <- workflow() %>%
 add_recipe(amazon_recipe) %>%
-add_model(logRegModel) %>%
-fit(data = train)
+add_model(logRegModel) #%>%
+# fit(data = train)
+```
+
+Tuning
+
+```{r}
+tuning_grid <- grid_regular(penalty(),
+mixture(),
+levels = 7)
+
+folds <- vfold_cv(train, v = 7, repeats=1)
+```
+
+Running CV
+
+```{r}
+CV_results <- wf %>%
+  tune_grid(resamples = folds,
+            grid = tuning_grid,
+            metrics = metric_set(roc_auc))
+
+bestTune <- CV_results %>%
+  select_best(metric = "roc_auc")
 ```
 
 Predictions
 
 ```{r}
-amazon_predictions <- predict(wf,
+
+final_wf <-
+  wf %>%
+  finalize_workflow(bestTune) %>%
+  fit(data=train)
+
+
+amazon_predictions <- predict(final_wf,
 new_data = test,
 type= "prob") 
 ```
