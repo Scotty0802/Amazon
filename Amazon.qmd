@@ -4,6 +4,12 @@ format: html
 editor: visual
 ---
 
+#notes
+
+```{r}
+# lcd /mnt/c/Users/riley/Documents/GitHub/Stat\ 348/Amazon
+```
+
 # Load Libraries
 
 ```{r}
