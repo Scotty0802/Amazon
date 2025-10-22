@@ -1,38 +1,18 @@
----
-title: "Amazon"
-format: html
-editor: visual
----
-
-#notes
-
-```{r}
-# lcd /mnt/c/Users/riley/Documents/GitHub/Stat\ 348/Amazon
-```
-
-# Load Libraries
-
-```{r}
-library(tidyverse)
 library(tidymodels)
 library(vroom)
-library(glmnet)
 library(embed)
-library(lme4)
-library(kknn)
 library(ranger)
-```
 
 # Import Data
 
-```{r}
-train <- vroom("~/GitHub/Stat 348/Amazon/Data/train.csv")
-test <- vroom("~/GitHub/Stat 348/Amazon/Data/test.csv")
-```
+
+train <- vroom("/yunity/rileyw02/Stat_348/train.csv")
+test <- vroom("/yunity/rileyw02/Stat_348/test.csv")
+
 
 # Recipe
 
-```{r}
+
 train <- train %>%
   mutate(ACTION = as.factor(ACTION))
 
@@ -45,40 +25,40 @@ amazon_recipe <- recipe(ACTION ~ ., data = train) %>%
 amazon_prep <- prep(amazon_recipe)
 amazon_train <- bake(amazon_prep, new_data = NULL)
 amazon_test <- bake(amazon_prep, new_data = test)
+# 
 
-```
 
-Models
+#Models
 
-```{r}
+
 model <- rand_forest(
-    mtry = tune(),      # number of predictors randomly sampled at each split
-    min_n = tune(),     # minimal node size
-    trees = 1000         # number of trees; can increase to 1000
-  ) %>%
+  mtry = tune(),      # number of predictors randomly sampled at each split
+  min_n = tune(),     # minimal node size
+  trees = 1000         # number of trees; can increase to 1000
+) %>%
   set_engine("ranger") %>%
   set_mode("classification")
 
-```
 
-Workflow
 
-```{r}
+#Workflow
+
+
 wf <- workflow() %>%
   add_recipe(amazon_recipe) %>%
   add_model(model)
 
-```
 
-Tune
 
-```{r}
+#Tune
+
+
 tune_grid <- grid_regular(
   mtry(range = c(1, 9)),     # adjust according to number of predictors
   min_n(range = c(1, 9)),
-  levels = 3)
+  levels = 9)
 
-folds <- vfold_cv(train, v = 5)
+folds <- vfold_cv(train, v = 10)
 
 ## Run the CV
 CV_results <- wf %>%
@@ -87,30 +67,30 @@ CV_results <- wf %>%
     grid = tune_grid,
     metrics = metric_set(roc_auc, accuracy)
   )
-```
+
 
 
 # Best model
-```{r}
+
 bestTune <- CV_results %>%
   select_best(metric = "roc_auc")
-```
 
-Predictions
 
-```{r}
+#Predictions
+
+
 final_wf <- wf %>%
   finalize_workflow(bestTune) %>%
   fit(data = train)
 
 amazon_predictions <- predict(final_wf,
-new_data = test,
-type= "prob") 
-```
+                              new_data = test,
+                              type= "prob") 
 
-Print
 
-```{r}
+#Print
+
+
 kaggle_submission <- amazon_predictions |>
   bind_cols(test) |> 
   select(id, .pred_1) |>
@@ -118,6 +98,5 @@ kaggle_submission <- amazon_predictions |>
 
 ## Write out the file
 vroom_write(x = kaggle_submission,
-            file = "~/GitHub/Stat 348/Amazon/Data/KaggleSub/Kaggle_Submission.csv",
+            file = "/yunity/rileyw02/Stat_348/Kaggle_Submission_BRF.csv",
             delim = ",")
-```
