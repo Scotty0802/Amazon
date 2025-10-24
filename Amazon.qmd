@@ -20,8 +20,8 @@ library(ggplot2)
 library(dplyr)
 library(patchwork)
 library(glmnet)
-
-
+library(naivebayes)
+library(discrim)
 library(embed)
 library(lme4)
 library(kknn)
@@ -49,15 +49,16 @@ amazon_recipe <- recipe(ACTION ~ ., data = train) %>%
 amazon_prep <- prep(amazon_recipe)
 amazon_train <- bake(amazon_prep, new_data = NULL)
 amazon_test <- bake(amazon_prep, new_data = test)
-View(amazon_test)
+
 ```
 
 Models
 
 ```{r}
-model <- nearest_neighbor(neighbors = tune()) %>% 
-  set_mode("classification") %>%
-  set_engine("kknn")
+model <- naive_Bayes(Laplace=tune(), smoothness=tune()) %>%
+set_mode("classification") %>%
+set_engine("naivebayes") # install discrim library for the naiveb
+
 ```
 
 Workflow
@@ -71,10 +72,14 @@ wf <- workflow() %>%
 Tune
 
 ```{r}
-tune_grid <- grid_regular(neighbors(range = c(50, 250)), levels = 2)
+tune_grid <- grid_regular(
+  Laplace(range = c(0, 1)),
+  smoothness(range = c(.1,2))
+  , levels = 5)
 folds <- vfold_cv(train, v = 5)
+```
 
-## Run the CV
+```{r}
 CV_results <- wf %>%
   tune_grid(
     resamples = folds,
@@ -83,8 +88,8 @@ CV_results <- wf %>%
   )
 ```
 
-
 # Best model
+
 ```{r}
 bestTune <- CV_results %>%
   select_best(metric = "roc_auc")
