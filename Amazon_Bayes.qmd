@@ -16,11 +16,9 @@ editor: visual
 library(tidyverse)
 library(tidymodels)
 library(vroom)
-library(glmnet)
+library(naivebayes)
 library(embed)
-library(lme4)
-library(kknn)
-library(ranger)
+library(discrim)
 ```
 
 # Import Data
@@ -40,24 +38,22 @@ amazon_recipe <- recipe(ACTION ~ ., data = train) %>%
   step_string2factor(all_nominal_predictors()) %>%
   step_other(all_nominal_predictors(), threshold = 0.001) %>%
   step_lencode_mixed(all_nominal_predictors(), outcome = vars(ACTION)) %>%
-  step_normalize(all_numeric_predictors())
+  step_normalize(all_numeric_predictors()) %>%
+  step_pca(all_predictors(), threshold=.9)
 
 amazon_prep <- prep(amazon_recipe)
 amazon_train <- bake(amazon_prep, new_data = NULL)
 amazon_test <- bake(amazon_prep, new_data = test)
+
 
 ```
 
 Models
 
 ```{r}
-model <- rand_forest(
-    mtry = tune(),      # number of predictors randomly sampled at each split
-    min_n = tune(),     # minimal node size
-    trees = 1000         # number of trees; can increase to 1000
-  ) %>%
-  set_engine("ranger") %>%
-  set_mode("classification")
+model <- naive_Bayes(Laplace=tune(), smoothness=tune()) %>%
+set_mode("classification") %>%
+set_engine("naivebayes") 
 
 ```
 
@@ -74,11 +70,11 @@ Tune
 
 ```{r}
 tune_grid <- grid_regular(
-  mtry(range = c(1, 9)),     # adjust according to number of predictors
-  min_n(range = c(1, 9)),
-  levels = 3)
+  Laplace(range = c(0, 1)),
+  smoothness(range = c(.1,2))
+  , levels = 10)
+folds <- vfold_cv(train, v = 6)
 
-folds <- vfold_cv(train, v = 5)
 
 ## Run the CV
 CV_results <- wf %>%
@@ -118,6 +114,6 @@ kaggle_submission <- amazon_predictions |>
 
 ## Write out the file
 vroom_write(x = kaggle_submission,
-            file = "~/GitHub/Stat 348/Amazon/Data/KaggleSub/Kaggle_Submission.csv",
+            file = "~/GitHub/Stat 348/Amazon/Data/KaggleSub/Kaggle_Bayes_PCA.csv",
             delim = ",")
 ```

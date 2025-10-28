@@ -17,7 +17,7 @@ library(tidyverse)
 library(tidymodels)
 library(vroom)
 library(embed)
-library(kknn)
+library(ranger)
 ```
 
 # Import Data
@@ -43,15 +43,20 @@ amazon_recipe <- recipe(ACTION ~ ., data = train) %>%
 amazon_prep <- prep(amazon_recipe)
 amazon_train <- bake(amazon_prep, new_data = NULL)
 amazon_test <- bake(amazon_prep, new_data = test)
-View(amazon_test)
+
 ```
 
 Models
 
 ```{r}
-model <- nearest_neighbor(neighbors = tune()) %>% 
-  set_mode("classification") %>%
-  set_engine("kknn")
+model <- rand_forest(
+    mtry = tune(),      # number of predictors randomly sampled at each split
+    min_n = tune(),     # minimal node size
+    trees = 1000         # number of trees; can increase to 1000
+  ) %>%
+  set_engine("ranger") %>%
+  set_mode("classification")
+
 ```
 
 Workflow
@@ -60,12 +65,17 @@ Workflow
 wf <- workflow() %>%
   add_recipe(amazon_recipe) %>%
   add_model(model)
+
 ```
 
 Tune
 
 ```{r}
-tune_grid <- grid_regular(neighbors(range = c(50, 250)), levels = 2)
+tune_grid <- grid_regular(
+  mtry(range = c(1, 9)),     # adjust according to number of predictors
+  min_n(range = c(1, 9)),
+  levels = 3)
+
 folds <- vfold_cv(train, v = 5)
 
 ## Run the CV
@@ -106,6 +116,6 @@ kaggle_submission <- amazon_predictions |>
 
 ## Write out the file
 vroom_write(x = kaggle_submission,
-            file = "~/GitHub/Stat 348/Amazon/Data/KaggleSub/Kaggle_Submission.csv",
+            file = "~/GitHub/Stat 348/Amazon/Data/KaggleSub/Kaggle_BRF_PCA.csv",
             delim = ",")
 ```

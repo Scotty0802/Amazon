@@ -4,23 +4,13 @@ format: html
 editor: visual
 ---
 
-#notes
-
-```{r}
-# lcd /mnt/c/Users/riley/Documents/GitHub/Stat\ 348/Amazon
-```
-
 # Load Libraries
 
 ```{r}
-library(tidyverse)
 library(tidymodels)
 library(vroom)
-library(glmnet)
 library(embed)
-library(lme4)
 library(kknn)
-library(ranger)
 ```
 
 # Import Data
@@ -40,7 +30,8 @@ amazon_recipe <- recipe(ACTION ~ ., data = train) %>%
   step_string2factor(all_nominal_predictors()) %>%
   step_other(all_nominal_predictors(), threshold = 0.001) %>%
   step_lencode_mixed(all_nominal_predictors(), outcome = vars(ACTION)) %>%
-  step_normalize(all_numeric_predictors())
+  step_normalize(all_numeric_predictors()) %>%
+  step_pca(all_predictors(), threshold=1)
 
 amazon_prep <- prep(amazon_recipe)
 amazon_train <- bake(amazon_prep, new_data = NULL)
@@ -51,13 +42,9 @@ amazon_test <- bake(amazon_prep, new_data = test)
 Models
 
 ```{r}
-model <- rand_forest(
-    mtry = tune(),      # number of predictors randomly sampled at each split
-    min_n = tune(),     # minimal node size
-    trees = 1000         # number of trees; can increase to 1000
-  ) %>%
-  set_engine("ranger") %>%
-  set_mode("classification")
+model <- nearest_neighbor(neighbors = tune()) %>% 
+  set_mode("classification") %>%
+  set_engine("kknn")
 
 ```
 
@@ -73,10 +60,8 @@ wf <- workflow() %>%
 Tune
 
 ```{r}
-tune_grid <- grid_regular(
-  mtry(range = c(1, 9)),     # adjust according to number of predictors
-  min_n(range = c(1, 9)),
-  levels = 3)
+tune_grid <- grid_regular(neighbors(range = c(50, 250)), levels = 5)
+
 
 folds <- vfold_cv(train, v = 5)
 
@@ -118,6 +103,6 @@ kaggle_submission <- amazon_predictions |>
 
 ## Write out the file
 vroom_write(x = kaggle_submission,
-            file = "~/GitHub/Stat 348/Amazon/Data/KaggleSub/Kaggle_Submission.csv",
+            file = "~/GitHub/Stat 348/Amazon/Data/KaggleSub/Kaggle_KNN_PCA.csv",
             delim = ",")
 ```
