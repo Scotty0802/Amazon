@@ -40,7 +40,8 @@ amazon_recipe <- recipe(ACTION ~ ., data = train) %>%
   step_string2factor(all_nominal_predictors()) %>%
   step_other(all_nominal_predictors(), threshold = 0.001) %>%
   step_lencode_mixed(all_nominal_predictors(), outcome = vars(ACTION)) %>%
-  step_normalize(all_numeric_predictors())
+  step_normalize(all_numeric_predictors()) %>%
+  step_pca(all_predictors(), threshold=.8)
 
 amazon_prep <- prep(amazon_recipe)
 amazon_train <- bake(amazon_prep, new_data = NULL)
@@ -48,55 +49,96 @@ amazon_test <- bake(amazon_prep, new_data = test)
 
 ```
 
-Models
+# Models
 
 ```{r}
-model <- rand_forest(
-    mtry = tune(),      # number of predictors randomly sampled at each split
-    min_n = tune(),     # minimal node size
-    trees = 1000         # number of trees; can increase to 1000
-  ) %>%
-  set_engine("ranger") %>%
-  set_mode("classification")
+svmPoly <- svm_poly(degree=tune(), cost=tune()) %>% 
+set_mode("classification") %>%
+set_engine("kernlab")
+
+svmRadial <- svm_rbf(rbf_sigma=tune(), cost=tune()) %>% 
+set_mode("classification") %>%
+set_engine("kernlab")
+
+svmLinear <- svm_linear(cost=tune()) %>%
+set_mode("classification") %>%
+set_engine("kernlab")
 
 ```
 
-Workflow
+# Workflow
 
 ```{r}
-wf <- workflow() %>%
+wf_Poly <- workflow() %>%
   add_recipe(amazon_recipe) %>%
-  add_model(model)
+  add_model(svmPoly)
 
+wf_Rad <- workflow() %>%
+  add_recipe(amazon_recipe) %>%
+  add_model(svmRadial)
+
+wf_Lin <- workflow() %>%
+  add_recipe(amazon_recipe) %>%
+  add_model(svmLinear)
 ```
 
-Tune
+# Tune
 
 ```{r}
-tune_grid <- grid_regular(
-  mtry(range = c(1, 9)),     # adjust according to number of predictors
-  min_n(range = c(1, 9)),
-  levels = 3)
+tune_grid_poly <- grid_regular(
+  degree(range = c(1, 5)),
+  cost(range = c(-3, 3), trans = log10_trans()),
+  levels = 5)
+
+tune_grid_rad <- grid_regular(
+  rbf_sigma(range = c(-3, 0), trans = log10_trans()), 
+  cost(range = c(-3, 3), trans = log10_trans()),
+  levels = 5)
+
+tune_grid_lin <- grid_regular(
+  cost(range = c(-3, 3), trans = log10_trans()),
+  levels = 5)
+
 
 folds <- vfold_cv(train, v = 5)
 
 ## Run the CV
-CV_results <- wf %>%
+CV_results_poly <- wf %>%
   tune_grid(
     resamples = folds,
-    grid = tune_grid,
+    grid = tune_grid_poly,
+    metrics = metric_set(roc_auc, accuracy)
+  )
+
+CV_results_rad <- wf %>%
+  tune_grid(
+    resamples = folds,
+    grid = tune_grid_rad,
+    metrics = metric_set(roc_auc, accuracy)
+  )
+
+CV_results_lin <- wf %>%
+  tune_grid(
+    resamples = folds,
+    grid = tune_grid_lin,
     metrics = metric_set(roc_auc, accuracy)
   )
 ```
 
-
 # Best model
+
 ```{r}
-bestTune <- CV_results %>%
+bestTune_poly <- CV_results_poly %>%
+  select_best(metric = "roc_auc")
+
+bestTune_rad <- CV_results_rad %>%
+  select_best(metric = "roc_auc")
+
+bestTune_lin <- CV_results_lin %>%
   select_best(metric = "roc_auc")
 ```
 
-Predictions
+# Predictions
 
 ```{r}
 final_wf <- wf %>%
@@ -108,7 +150,7 @@ new_data = test,
 type= "prob") 
 ```
 
-Print
+# Print
 
 ```{r}
 kaggle_submission <- amazon_predictions |>
