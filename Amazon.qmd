@@ -4,23 +4,23 @@ format: html
 editor: visual
 ---
 
-#notes
+# notes
 
 ```{r}
 # lcd /mnt/c/Users/riley/Documents/GitHub/Stat\ 348/Amazon
+# R CMD BATCH --no-save --no-restore Amazon_SVM.R &
 ```
 
 # Load Libraries
 
 ```{r}
-library(tidyverse)
 library(tidymodels)
 library(vroom)
 library(glmnet)
 library(embed)
-library(lme4)
-library(kknn)
-library(ranger)
+library(themis)
+library(parsnip)
+
 ```
 
 # Import Data
@@ -37,11 +37,12 @@ train <- train %>%
   mutate(ACTION = as.factor(ACTION))
 
 amazon_recipe <- recipe(ACTION ~ ., data = train) %>%
-  step_string2factor(all_nominal_predictors()) %>%
-  step_other(all_nominal_predictors(), threshold = 0.001) %>%
+  step_mutate_at(all_numeric_predictors(), fn = factor) %>%
   step_lencode_mixed(all_nominal_predictors(), outcome = vars(ACTION)) %>%
   step_normalize(all_numeric_predictors()) %>%
-  step_pca(all_predictors(), threshold=.8)
+  step_zv(all_predictors()) %>%
+  step_pca(all_predictors(), threshold=0.99) %>%
+  step_downsample(ACTION)
 
 amazon_prep <- prep(amazon_recipe)
 amazon_train <- bake(amazon_prep, new_data = NULL)
@@ -49,117 +50,148 @@ amazon_test <- bake(amazon_prep, new_data = test)
 
 ```
 
-# Models
+# Polynomial
 
 ```{r}
-svmPoly <- svm_poly(degree=tune(), cost=tune()) %>% 
-set_mode("classification") %>%
-set_engine("kernlab")
+svmPoly <- svm_poly(degree = 1, cost = 0.0131) %>%
+  set_mode("classification") %>%
+  set_engine("kernlab")
 
-svmRadial <- svm_rbf(rbf_sigma=tune(), cost=tune()) %>% 
-set_mode("classification") %>%
-set_engine("kernlab")
-
-svmLinear <- svm_linear(cost=tune()) %>%
-set_mode("classification") %>%
-set_engine("kernlab")
-
-```
-
-# Workflow
-
-```{r}
 wf_Poly <- workflow() %>%
   add_recipe(amazon_recipe) %>%
-  add_model(svmPoly)
-
-wf_Rad <- workflow() %>%
-  add_recipe(amazon_recipe) %>%
-  add_model(svmRadial)
-
-wf_Lin <- workflow() %>%
-  add_recipe(amazon_recipe) %>%
-  add_model(svmLinear)
-```
-
-# Tune
-
-```{r}
-tune_grid_poly <- grid_regular(
-  degree(range = c(1, 5)),
-  cost(range = c(-3, 3), trans = log10_trans()),
-  levels = 5)
-
-tune_grid_rad <- grid_regular(
-  rbf_sigma(range = c(-3, 0), trans = log10_trans()), 
-  cost(range = c(-3, 3), trans = log10_trans()),
-  levels = 5)
-
-tune_grid_lin <- grid_regular(
-  cost(range = c(-3, 3), trans = log10_trans()),
-  levels = 5)
-
-
-folds <- vfold_cv(train, v = 5)
-
-## Run the CV
-CV_results_poly <- wf %>%
-  tune_grid(
-    resamples = folds,
-    grid = tune_grid_poly,
-    metrics = metric_set(roc_auc, accuracy)
-  )
-
-CV_results_rad <- wf %>%
-  tune_grid(
-    resamples = folds,
-    grid = tune_grid_rad,
-    metrics = metric_set(roc_auc, accuracy)
-  )
-
-CV_results_lin <- wf %>%
-  tune_grid(
-    resamples = folds,
-    grid = tune_grid_lin,
-    metrics = metric_set(roc_auc, accuracy)
-  )
-```
-
-# Best model
-
-```{r}
-bestTune_poly <- CV_results_poly %>%
-  select_best(metric = "roc_auc")
-
-bestTune_rad <- CV_results_rad %>%
-  select_best(metric = "roc_auc")
-
-bestTune_lin <- CV_results_lin %>%
-  select_best(metric = "roc_auc")
-```
-
-# Predictions
-
-```{r}
-final_wf <- wf %>%
-  finalize_workflow(bestTune) %>%
+  add_model(svmPoly)%>%
   fit(data = train)
 
-amazon_predictions <- predict(final_wf,
+# tune_grid_poly <- grid_regular(
+#   degree(range = c(1, 5)),
+#   cost(range = c(-3, 3), trans = log10_trans()),
+#   levels = 2)
+# 
+# folds <- vfold_cv(train, v = 2)
+# 
+# CV_results_poly <- wf_Poly %>%
+#   tune_grid(
+#     resamples = folds,
+#     grid = tune_grid_poly,
+#     metrics = metric_set(roc_auc, accuracy),
+#     control = control_grid(verbose = TRUE))
+#     
+# bestTune_poly <- CV_results_poly %>%
+#   select_best(metric = "roc_auc")
+# 
+# final_wf_poly <- wf_Poly %>%
+#   finalize_workflow(bestTune_poly) %>%
+#   fit(data = train)
+
+amazon_predictions_p <- predict(wf_Poly,
 new_data = test,
 type= "prob") 
-```
 
-# Print
-
-```{r}
-kaggle_submission <- amazon_predictions |>
+kaggle_submission_p <- amazon_predictions_p |>
   bind_cols(test) |> 
   select(id, .pred_1) |>
   rename(ACTION = .pred_1) 
 
-## Write out the file
-vroom_write(x = kaggle_submission,
-            file = "~/GitHub/Stat 348/Amazon/Data/KaggleSub/Kaggle_Submission.csv",
+vroom_write(x = kaggle_submission_p,
+            file = "~/GitHub/Stat 348/Amazon/Data/KaggleSub/Kaggle_Submission_Poly.csv",
+            delim = ",")
+
+```
+
+# Radial
+
+```{r}
+svmRadial <- svm_rbf(rbf_sigma = 0.177, cost = 0.00316) %>%
+  set_mode("classification") %>%
+  set_engine("kernlab")
+
+
+
+wf_Rad <- workflow() %>%
+  add_recipe(amazon_recipe) %>%
+  add_model(svmRadial)%>%
+  fit(data = train)
+
+# tune_grid_rad <- grid_regular(
+#   rbf_sigma(range = c(-3, 0), trans = log10_trans()), 
+#   cost(range = c(-3, 3), trans = log10_trans()),
+#   levels = 2)
+# 
+# folds <- vfold_cv(train, v = 2)
+# 
+# CV_results_rad <- wf_Rad %>%
+#   tune_grid(
+#     resamples = folds,
+#     grid = tune_grid_rad,
+#     metrics = metric_set(roc_auc, accuracy),
+#     control = control_grid(verbose = TRUE)
+#   )
+# 
+# bestTune_rad <- CV_results_rad %>%
+#   select_best(metric = "roc_auc")
+# 
+# final_wf_rad <- wf_Rad %>%
+#   finalize_workflow(bestTune_rad) %>%
+#   fit(data = train)
+
+amazon_predictions_r <- predict(wf_Rad,
+new_data = test,
+type= "prob") 
+
+kaggle_submission_r <- amazon_predictions_r |>
+  bind_cols(test) |> 
+  select(id, .pred_1) |>
+  rename(ACTION = .pred_1) 
+
+vroom_write(x = kaggle_submission_r,
+            file = "~/GitHub/Stat 348/Amazon/Data/KaggleSub/Kaggle_Submission_Rad.csv",
+            delim = ",")
+```
+
+# Linear
+
+```{r}
+svmLinear <- svm_linear(cost = 0.0131) %>%
+  set_mode("classification") %>%
+  set_engine("kernlab")
+
+wf_Lin <- workflow() %>%
+  add_model(svmLinear)%>%
+  add_recipe(amazon_recipe) %>%
+  fit(data = train)
+# 
+# tune_grid_lin <- grid_regular(
+#   cost(range = c(-3, 3), trans = log10_trans()),
+#   levels = 3)
+# 
+# 
+# folds <- vfold_cv(train, v = 2)
+# 
+# CV_results_lin <- wf_Lin %>%
+#   tune_grid(
+#     resamples = folds,
+#     grid = tune_grid_lin,
+#     metrics = metric_set(roc_auc, accuracy),
+#     control = control_grid(verbose = TRUE)
+#   )
+# 
+# bestTune_lin <- CV_results_lin %>%
+#   select_best(metric = "roc_auc")
+# 
+# final_wf_lin <- wf_Lin %>%
+#   finalize_workflow(bestTune_lin) %>%
+#   fit(data = train)
+
+amazon_predictions_l <- predict(wf_Lin,
+new_data = test,
+type= "prob") 
+
+kaggle_submission_l <- amazon_predictions_l |>
+  bind_cols(test) |> 
+  select(id, .pred_1) |>
+  rename(ACTION = .pred_1) 
+
+vroom_write(x = kaggle_submission_l,
+            file = "~/GitHub/Stat 348/Amazon/Data/KaggleSub/Kaggle_Submission_linear.csv",
             delim = ",")
 ```
